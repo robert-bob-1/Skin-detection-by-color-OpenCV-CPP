@@ -1,0 +1,2891 @@
+// OpenCVApplication.cpp : Defines the entry point for the console application.
+//
+
+#include "stdafx.h"
+#include "common.h"
+#include <opencv2/core/utils/logger.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
+#include "Functions.h"
+#include <fstream>
+#include "opencv2/objdetect/objdetect.hpp"
+
+wchar_t* projectPath;
+
+void testOpenImage()
+{
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat src;
+		src = imread(fname);
+		imshow("image", src);
+		waitKey();
+	}
+}
+
+void testOpenImagesFld()
+{
+	char folderName[MAX_PATH];
+	if (openFolderDlg(folderName) == 0)
+		return;
+	char fname[MAX_PATH];
+	FileGetter fg(folderName, "bmp");
+	while (fg.getNextAbsFile(fname))
+	{
+		Mat src;
+		src = imread(fname);
+		imshow(fg.getFoundFileName(), src);
+		if (waitKey() == 27) //ESC pressed
+			break;
+	}
+}
+
+void testImageOpenAndSave()
+{
+	_wchdir(projectPath);
+
+	Mat src, dst;
+
+	src = imread("Images/Lena_24bits.bmp", IMREAD_COLOR);	// Read the image
+
+	if (!src.data)	// Check for invalid input
+	{
+		printf("Could not open or find the image\n");
+		return;
+	}
+
+	// Get the image resolution
+	Size src_size = Size(src.cols, src.rows);
+
+	// Display window
+	const char* WIN_SRC = "Src"; //window for the source image
+	namedWindow(WIN_SRC, WINDOW_AUTOSIZE);
+	moveWindow(WIN_SRC, 0, 0);
+
+	const char* WIN_DST = "Dst"; //window for the destination (processed) image
+	namedWindow(WIN_DST, WINDOW_AUTOSIZE);
+	moveWindow(WIN_DST, src_size.width + 10, 0);
+
+	cvtColor(src, dst, COLOR_BGR2GRAY); //converts the source image to a grayscale one
+
+	imwrite("Images/Lena_24bits_gray.bmp", dst); //writes the destination to file
+
+	imshow(WIN_SRC, src);
+	imshow(WIN_DST, dst);
+
+	waitKey(0);
+}
+
+void testNegativeImage()
+{
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		double t = (double)getTickCount(); // Get the current time [s]
+
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+		int height = src.rows;
+		int width = src.cols;
+		Mat dst = Mat(height, width, CV_8UC1);
+		// Accessing individual pixels in an 8 bits/pixel image
+		// Inefficient way -> slow
+		for (int i = 0; i < height; i++)
+		{
+			for (int j = 0; j < width; j++)
+			{
+				uchar val = src.at<uchar>(i, j);
+				uchar neg = 255 - val;
+				dst.at<uchar>(i, j) = neg;
+			}
+		}
+
+		// Get the current time again and compute the time difference [s]
+		t = ((double)getTickCount() - t) / getTickFrequency();
+		// Print (in the console window) the processing time in [ms]
+		printf("Time = %.3f [ms]\n", t * 1000);
+
+		imshow("input image", src);
+		imshow("negative image", dst);
+		waitKey();
+	}
+}
+
+void testNegativeImageFast()
+{
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat src = imread(fname, IMREAD_GRAYSCALE);
+		int height = src.rows;
+		int width = src.cols;
+		Mat dst = src.clone();
+
+		double t = (double)getTickCount(); // Get the current time [s]
+
+		// The fastest approach of accessing the pixels -> using pointers
+		uchar* lpSrc = src.data;
+		uchar* lpDst = dst.data;
+		int w = (int)src.step; // no dword alignment is done !!!
+		for (int i = 0; i < height; i++)
+			for (int j = 0; j < width; j++) {
+				uchar val = lpSrc[i * w + j];
+				lpDst[i * w + j] = 255 - val;
+			}
+
+		// Get the current time again and compute the time difference [s]
+		t = ((double)getTickCount() - t) / getTickFrequency();
+		// Print (in the console window) the processing time in [ms]
+		printf("Time = %.3f [ms]\n", t * 1000);
+
+		imshow("input image", src);
+		imshow("negative image", dst);
+		waitKey();
+	}
+}
+
+void testColor2Gray()
+{
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat src = imread(fname);
+
+		int height = src.rows;
+		int width = src.cols;
+
+		Mat dst = Mat(height, width, CV_8UC1);
+
+		// Accessing individual pixels in a RGB 24 bits/pixel image
+		// Inefficient way -> slow
+		for (int i = 0; i < height; i++)
+		{
+			for (int j = 0; j < width; j++)
+			{
+				Vec3b v3 = src.at<Vec3b>(i, j);
+				uchar b = v3[0];
+				uchar g = v3[1];
+				uchar r = v3[2];
+				dst.at<uchar>(i, j) = (r + g + b) / 3;
+			}
+		}
+
+		imshow("input image", src);
+		imshow("gray image", dst);
+		waitKey();
+	}
+}
+
+void testBGR2HSV()
+{
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat src = imread(fname);
+		int height = src.rows;
+		int width = src.cols;
+
+		// HSV components
+		Mat H = Mat(height, width, CV_8UC1);
+		Mat S = Mat(height, width, CV_8UC1);
+		Mat V = Mat(height, width, CV_8UC1);
+
+		// Defining pointers to each matrix (8 bits/pixels) of the individual components H, S, V
+		uchar* lpH = H.data;
+		uchar* lpS = S.data;
+		uchar* lpV = V.data;
+
+		Mat hsvImg;
+		cvtColor(src, hsvImg, COLOR_BGR2HSV);
+
+		// Defining the pointer to the HSV image matrix (24 bits/pixel)
+		uchar* hsvDataPtr = hsvImg.data;
+
+		for (int i = 0; i < height; i++)
+		{
+			for (int j = 0; j < width; j++)
+			{
+				int hi = i * width * 3 + j * 3;
+				int gi = i * width + j;
+
+				lpH[gi] = hsvDataPtr[hi] * 510 / 360;	// lpH = 0 .. 255
+				lpS[gi] = hsvDataPtr[hi + 1];			// lpS = 0 .. 255
+				lpV[gi] = hsvDataPtr[hi + 2];			// lpV = 0 .. 255
+			}
+		}
+
+		imshow("input image", src);
+		imshow("H", H);
+		imshow("S", S);
+		imshow("V", V);
+
+		waitKey();
+	}
+}
+
+void testResize()
+{
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat src;
+		src = imread(fname);
+		Mat dst1, dst2;
+		//without interpolation
+		resizeImg(src, dst1, 320, false);
+		//with interpolation
+		resizeImg(src, dst2, 320, true);
+		imshow("input image", src);
+		imshow("resized image (without interpolation)", dst1);
+		imshow("resized image (with interpolation)", dst2);
+		waitKey();
+	}
+}
+
+void testCanny()
+{
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat src, dst, gauss;
+		src = imread(fname, IMREAD_GRAYSCALE);
+		double k = 0.4;
+		int pH = 50;
+		int pL = (int)k * pH;
+		GaussianBlur(src, gauss, Size(5, 5), 0.8, 0.8);
+		Canny(gauss, dst, pL, pH, 3);
+		imshow("input image", src);
+		imshow("canny", dst);
+		waitKey();
+	}
+}
+
+void testVideoSequence()
+{
+	_wchdir(projectPath);
+
+	VideoCapture cap("Videos/rubic.avi"); // off-line video from file
+	//VideoCapture cap(0);	// live video from web cam
+	if (!cap.isOpened()) {
+		printf("Cannot open video capture device.\n");
+		waitKey(0);
+		return;
+	}
+
+	Mat edges;
+	Mat frame;
+	char c;
+
+	while (cap.read(frame))
+	{
+		Mat grayFrame;
+		cvtColor(frame, grayFrame, COLOR_BGR2GRAY);
+		Canny(grayFrame, edges, 40, 100, 3);
+		imshow("source", frame);
+		imshow("gray", grayFrame);
+		imshow("edges", edges);
+		c = waitKey(100);  // waits 100ms and advances to the next frame
+		if (c == 27) {
+			// press ESC to exit
+			printf("ESC pressed - capture finished\n");
+			break;  //ESC pressed
+		};
+	}
+}
+
+void testSnap()
+{
+	_wchdir(projectPath);
+
+	VideoCapture cap(0); // open the deafult camera (i.e. the built in web cam)
+	if (!cap.isOpened()) // openenig the video device failed
+	{
+		printf("Cannot open video capture device.\n");
+		return;
+	}
+
+	Mat frame;
+	char numberStr[256];
+	char fileName[256];
+
+	// video resolution
+	Size capS = Size((int)cap.get(CAP_PROP_FRAME_WIDTH),
+		(int)cap.get(CAP_PROP_FRAME_HEIGHT));
+
+	// Display window
+	const char* WIN_SRC = "Src"; //window for the source frame
+	namedWindow(WIN_SRC, WINDOW_AUTOSIZE);
+	moveWindow(WIN_SRC, 0, 0);
+
+	const char* WIN_DST = "Snapped"; //window for showing the snapped frame
+	namedWindow(WIN_DST, WINDOW_AUTOSIZE);
+	moveWindow(WIN_DST, capS.width + 10, 0);
+
+	char c;
+	int frameNum = -1;
+	int frameCount = 0;
+
+	for (;;)
+	{
+		cap >> frame; // get a new frame from camera
+		if (frame.empty())
+		{
+			printf("End of the video file\n");
+			break;
+		}
+
+		++frameNum;
+
+		imshow(WIN_SRC, frame);
+
+		c = waitKey(10);  // waits a key press to advance to the next frame
+		if (c == 27) {
+			// press ESC to exit
+			printf("ESC pressed - capture finished");
+			break;  //ESC pressed
+		}
+		if (c == 115) { //'s' pressed - snap the image to a file
+			frameCount++;
+			fileName[0] = NULL;
+			sprintf(numberStr, "%d", frameCount);
+			strcat(fileName, "Images/A");
+			strcat(fileName, numberStr);
+			strcat(fileName, ".bmp");
+			bool bSuccess = imwrite(fileName, frame);
+			if (!bSuccess)
+			{
+				printf("Error writing the snapped image\n");
+			}
+			else
+				imshow(WIN_DST, frame);
+		}
+	}
+
+}
+
+void MyCallBackFunc(int event, int x, int y, int flags, void* param)
+{
+	//More examples: http://opencvexamples.blogspot.com/2014/01/detect-mouse-clicks-and-moves-on-image.html
+	Mat* src = (Mat*)param;
+	if (event == EVENT_LBUTTONDOWN)
+	{
+		printf("Pos(x,y): %d,%d  Color(RGB): %d,%d,%d\n",
+			x, y,
+			(int)(*src).at<Vec3b>(y, x)[2],
+			(int)(*src).at<Vec3b>(y, x)[1],
+			(int)(*src).at<Vec3b>(y, x)[0]);
+	}
+}
+
+void testMouseClick()
+{
+	Mat src;
+	// Read image from file
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		src = imread(fname);
+		//Create a window
+		namedWindow("My Window", 1);
+
+		//set the callback function for any mouse event
+		setMouseCallback("My Window", MyCallBackFunc, &src);
+
+		//show the image
+		imshow("My Window", src);
+
+		// Wait until user press some key
+		waitKey(0);
+	}
+}
+
+/* Histogram display function - display a histogram using bars (simlilar to L3 / Image Processing)
+Input:
+name - destination (output) window name
+hist - pointer to the vector containing the histogram values
+hist_cols - no. of bins (elements) in the histogram = histogram image width
+hist_height - height of the histogram image
+Call example:
+showHistogram ("MyHist", hist_dir, 255, 200);
+*/
+void showHistogram(const std::string& name, int* hist, const int  hist_cols, const int hist_height)
+{
+	Mat imgHist(hist_height, hist_cols, CV_8UC3, CV_RGB(255, 255, 255)); // constructs a white image
+
+	//computes histogram maximum
+	int max_hist = 0;
+	for (int i = 0; i < hist_cols; i++)
+		if (hist[i] > max_hist)
+			max_hist = hist[i];
+	double scale = 1.0;
+	scale = (double)hist_height / max_hist;
+	int baseline = hist_height - 1;
+
+	for (int x = 0; x < hist_cols; x++) {
+		Point p1 = Point(x, baseline);
+		Point p2 = Point(x, baseline - cvRound(hist[x] * scale));
+		line(imgHist, p1, p2, CV_RGB(255, 0, 255)); // histogram bins colored in magenta
+	}
+
+	imshow(name, imgHist);
+}
+
+int* calcHistogram(Mat img) {
+	Mat grayImg;
+	if (img.channels() == 1) {
+		grayImg = img;
+	}
+	else {
+		cvtColor(img, grayImg, COLOR_BGR2GRAY);
+	}
+
+	int histSize = 256;
+	float range[] = { 0, 256 };
+	const float* histRange = { range };
+
+	Mat histogram;
+	calcHist(&grayImg, 1, nullptr, Mat(), histogram, 1, &histSize, &histRange);
+
+	int* histValues = new int[histSize];
+
+	for (int i = 0; i < histSize; i++) {
+		histValues[i] = static_cast<int>(histogram.at<float>(i));
+	}
+
+	return histValues;
+}
+
+Mat binarize(Mat img, int thresholdVal) {
+	Mat grayImg;
+	if (img.channels() == 1) {
+		grayImg = img;
+	}
+	else {
+		cvtColor(img, grayImg, COLOR_BGR2GRAY);
+	}
+	Mat binarized;
+	threshold(img, binarized, thresholdVal, 255, THRESH_BINARY_INV);
+	return binarized;
+}
+
+
+Mat variableThresholding(Mat src) {
+	//define initial variables
+	int height = src.rows;
+	int width = src.cols;
+	Mat b = Mat(height, width, CV_8UC1);
+	int m = width * height;
+	int minim = 255;
+	int maxim = 0;
+	int h[256] = { 0 };
+	int i = 0;
+	int j = 0;
+	float err = 0.1f;
+	float x1 = 0;
+	float x2 = 0;
+	float thresh = 0;
+	float thresh2 = 0;
+	int n1 = 0, n2 = 0;
+	for (i = 0; i < height; i++)
+	{
+		for (j = 0; j < width; j++)
+		{
+			h[src.at<uchar>(i, j)] = h[src.at<uchar>(i, j)] + 1;
+		}
+	}
+	for (i = 0; i < 255; i++)
+	{
+		if (h[i] != 0 && i < minim) {
+			minim = i;
+		}
+		else if (h[i] != 0 && i > maxim)
+		{
+			maxim = i;
+		}
+	}
+
+	thresh = (minim + maxim) / 2;
+
+	while (abs(thresh - thresh2) > err) {
+		x1 = 0;
+		x2 = 0;
+		n1 = 0;
+		n2 = 0;
+		i = minim;
+		while (i <= maxim) {
+			if (i <= thresh) {
+				x1 += i * h[i];
+				n1 += h[i];
+			}
+			else {
+				x2 += i * h[i];
+				n2 += h[i];
+			}
+			i++;
+		}
+		x1 = x1 / n1;
+		x2 = x2 / n2;
+		thresh2 = thresh;
+		thresh = (x1 + x2) / 2;
+	}
+	printf("%d\n", (int)thresh);
+
+	for (i = 0; i < height; i++)
+	{
+		for (j = 0; j < width; j++)
+		{
+			if (src.at<uchar>(i, j) < thresh) {
+				b.at<uchar>(i, j) = 255;
+			}
+			else b.at<uchar>(i, j) = 0;
+		}
+	}
+	return b;
+}
+
+Mat getHue(Mat img) {
+	int height = img.rows;
+	int width = img.cols;
+
+	// H component
+	Mat H = Mat(height, width, CV_8UC1);
+
+	uchar* lpH = H.data;
+
+	Mat hsvImg;
+	cvtColor(img, hsvImg, COLOR_BGR2HSV);
+
+	// Defining the pointer to the HSV image matrix (24 bits/pixel)
+	uchar* hsvDataPtr = hsvImg.data;
+
+	for (int i = 0; i < height; i++)
+	{
+		for (int j = 0; j < width; j++)
+		{
+			int hi = i * width * 3 + j * 3;
+			int gi = i * width + j;
+
+			lpH[gi] = hsvDataPtr[hi] * 510 / 360;	// lpH = 0 .. 255
+		}
+	}
+
+	return H;
+}
+
+void showHSV() {
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat src = imread(fname);
+		int height = src.rows;
+		int width = src.cols;
+
+		// HSV components
+		Mat H = Mat(height, width, CV_8UC1);
+		Mat S = Mat(height, width, CV_8UC1);
+		Mat V = Mat(height, width, CV_8UC1);
+
+		// Defining pointers to each matrix (8 bits/pixels) of the individual components H, S, V
+		uchar* lpH = H.data;
+		uchar* lpS = S.data;
+		uchar* lpV = V.data;
+
+		Mat hsvImg;
+		cvtColor(src, hsvImg, COLOR_BGR2HSV);
+
+		// Defining the pointer to the HSV image matrix (24 bits/pixel)
+		uchar* hsvDataPtr = hsvImg.data;
+
+		for (int i = 0; i < height; i++)
+		{
+			for (int j = 0; j < width; j++)
+			{
+				int hi = i * width * 3 + j * 3;
+				int gi = i * width + j;
+
+				lpH[gi] = hsvDataPtr[hi] * 510 / 360;	// lpH = 0 .. 255
+				lpS[gi] = hsvDataPtr[hi + 1];			// lpS = 0 .. 255
+				lpV[gi] = hsvDataPtr[hi + 2];			// lpV = 0 .. 255
+			}
+		}
+
+		imshow("input image", src);
+		imshow("H", H);
+		imshow("S", S);
+		imshow("V", V);
+
+		int* histH = calcHistogram(H);
+		showHistogram("hist H", histH, 255, 200);
+		int* histS = calcHistogram(S);
+		showHistogram("hist S", histS, 255, 200);
+		int* histV = calcHistogram(V);
+		showHistogram("hist V", histV, 255, 200);
+
+		Mat binarizedH = binarize(H, 50);
+		imshow("binarized H", binarizedH);
+
+		Mat binarizedVariableH = variableThresholding(H);
+		imshow("binarized variably H", binarizedVariableH);
+		waitKey();
+	}
+}
+
+/*
+	LAB 3
+*/
+#define MAX_HUE 256
+//variabile globale
+int histG_hue[MAX_HUE]; // histograma globala / cumulativa
+
+void L3_ColorModel_Init()
+{
+	memset(histG_hue, 0, sizeof(unsigned int) * MAX_HUE);
+}
+
+void L3_ColorModel_Build()
+{
+	Mat src;
+	Mat hsv;
+
+	int hue_mean = 16;
+	int hue_std = 5;
+
+	// Read image from file
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		src = imread(fname);
+		Mat dst = Mat(src.rows, src.cols, CV_8UC1);
+		int height = src.rows;
+		int width = src.cols;
+
+		// Aplicare FTJ gaussian pt. eliminare zgomote: essential sa il aplicati
+		GaussianBlur(src, src, Size(5, 5), 0, 0);
+
+		// Componenta de culoare Hue a modelului HSV
+		Mat H = Mat(height, width, CV_8UC1);
+
+		// Definire pointeri la matricea (8 biti/pixeli) folosita la stocarea
+		// componentei individuale H
+		uchar* lpH = H.data;
+		cvtColor(src, hsv, COLOR_BGR2HSV); // conversie RGB -> HSV
+
+		// definire pointer la matricea (24 biti/pixeli) a imaginii HSV
+		uchar* hsvDataPtr = hsv.data;
+		for (int i = 0; i < height; i++)
+		{
+			for (int j = 0; j < width; j++)
+			{
+				// index in matricea hsv (24 biti/pixel)
+				int hi = i * width * 3 + j * 3;
+				int gi = i * width + j; // index in matricea H (8 biti/pixel)
+				lpH[gi] = hsvDataPtr[hi] * 510 / 360; // lpH = 0 .. 255
+			}
+		}
+
+		// SEGMENTARE
+		for (int i = 0; i < height; i++) {
+			for (int j = 0; j < width; j++) {
+				if ((hue_mean - 3 * hue_std) <= H.at<uchar>(i, j) && ((hue_mean + 3 * hue_std) >= H.at<uchar>(i, j))) {
+					dst.at<uchar>(i, j) = 255;
+				}
+				else {
+					dst.at<uchar>(i, j) = 0;
+				}
+			}
+		}
+		imshow("Segmentare", dst);
+
+		// POSTPROCESARE
+		Mat element = getStructuringElement(MORPH_RECT, Size(3, 3));
+
+		erode(dst, dst, element, Point(-1, -1), 2);
+		dilate(dst, dst, element, Point(-1, -1), 4);
+		erode(dst, dst, element, Point(-1, -1), 2);
+
+		imshow("Dilatare si eroziune", dst);
+
+		// CONTUR
+		Labeling("Contur", dst, false);
+
+		// AXA
+		float teta_deg;
+		float teta;
+		double xc;
+		double yc;
+		float p1y = 0.0;
+		float p1x = 0.0;
+		float p2x = 0.0;
+		float p2y = 0.0;
+		vector<vector<Point> > contours;
+		vector<Vec4i> hierarchy;
+		findContours(dst, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_NONE);
+		Moments m;
+		if (contours.size() > 0) {
+			int idx = 0;
+			for (; idx >= 0; idx = hierarchy[idx][0]) {
+				const vector<Point>& c = contours[idx];
+				m = moments(c); // calcul momente imagine
+				double arie = m.m00; // aria componentei conexe idx
+				if (arie > 100)
+				{
+					xc = m.m10 / m.m00; // coordonata x a CM al componentei conexe idx
+					yc = m.m01 / m.m00; // coordonata y a CM al componentei conexe idx
+					Scalar color(rand() & 255, rand() & 255, rand() & 255);
+					Point center(xc, yc);
+					int radius = 5;
+					double mc20p = m.m20 / m.m00 - xc * xc; // double mc20p = m.mu20 / m.m00;
+					double mc02p = m.m02 / m.m00 - yc * yc; // double mc02p = m.mu02 / m.m00;
+					double mc11p = m.m11 / m.m00 - xc * yc; // double mc11p = m.mu11 / m.m00;
+					teta = 0.5 * atan2(2 * mc11p, mc20p - mc02p);
+					teta_deg = teta * 180 / PI;
+					printf("Obiect=%d, arie=%.0f, xc=%0.f, yc=%0.f, teta=%.0f\n", idx, arie, xc, yc, teta_deg);
+				}
+			}
+
+			float slope = tan(teta);
+			printf("%f %f %f", slope, xc, yc);
+			int OK = 0;
+			if (-slope * xc + yc >= 0 && -slope * xc + yc <= src.rows - 1) {
+
+				if (OK == 0) {
+					p1x = 0.0;
+					p1y = -slope * xc + yc;
+					OK = 1;
+				}
+				else {
+					p2x = 0.0;
+					p2y = -slope * xc + yc;
+				}
+			}
+
+			if ((slope * (src.cols - 1 - xc) + yc) >= 0 && (slope * (src.cols - 1 - xc) + yc) <= src.rows - 1) {
+				if (OK == 0) {
+					p1x = src.cols - 1;
+					p1y = -slope * xc + yc;
+					OK = 1;
+				}
+				else {
+					p2x = src.cols - 1;
+					p2y = -slope * xc + yc;
+				}
+			}
+
+			if (-slope * xc + yc >= 0 && -slope * xc + yc <= src.cols - 1) {
+				if (OK == 0) {
+					p1x = -yc / (slope)+xc;
+					p1y = 0;
+					OK = 1;
+				}
+				else {
+					p2x = -yc / (slope)+xc;
+					p2y = 0;
+				}
+			}
+
+			if (((src.rows - 1 - yc) - slope * xc) >= 0 && ((src.rows - 1 - yc) - slope * xc) <= src.cols - 1) {
+				if (OK == 0) {
+					p1x = (src.rows - 1 - yc) / slope + xc;
+					p1y = src.rows - 1;
+					OK = 1;
+				}
+				else {
+					p2x = (src.rows - 1 - yc) / slope + xc;
+					p2y = src.rows - 1;
+				}
+			}
+			printf("\n p1x= %f p1y = %f  p2x= %f p2y = %f", p1x, p1y, p2x, p2y);
+		}
+		imshow("Axa de alungire pre", dst);
+		line(dst, Point(p1x, p1y), Point(p2x, p2y), Scalar(0,0,255), 2, 8);
+		imshow("Axa de alungire", dst);
+
+		// Wait until user presses some key
+		waitKey();
+	}
+}
+
+/*
+	LAB 4
+*/
+
+bool isInside(Mat img, int x, int y) {
+	if (x < 0 || x >= img.rows || y < 0 || y >= img.cols) {
+		return false;
+	}
+	return true;
+}
+
+void Lab4MyCallBackFunc(int event, int x, int y, int flags, void* param)
+{
+
+
+	Mat* H = (Mat*)param;
+	if (event == EVENT_FLAG_LBUTTON)
+	{
+		queue <Point> que;
+		que.push(Point(x, y));
+
+		int di[8] = { 1,1,0,-1,-1,-1,0,1 }; // randuri
+		int dj[8] = { 0,-1,-1,-1,0,1,1,1 }; // coloane
+
+		Mat labels = Mat::zeros((*H).size(), CV_16UC1);
+		labels.at<short>(y, x) = 1;
+		int T = 15;
+		int w = 1;
+		double med = 0.0;
+		int nr = 0;
+		int n = 1;
+		int k = 1;
+
+		for (int p = 0; p < 8; p++)
+		{
+			med += (*H).at<uchar>(y + di[k], x + dj[k]);
+		}
+		med = med / 8.0;
+		while (!que.empty()) {
+			Point oldest = que.front();
+			//que.pop();
+			int xx = oldest.x;
+			int yy = oldest.y;
+
+
+
+			for (int k1 = 0; k1 < 8; k1++) {
+				int j = xx + dj[k1];
+				int i = yy + di[k1];
+				if (isInside((*H), i, j)) {
+					if ((abs((*H).at<uchar>(i, j) - med) < T) && (labels.at <short>(i, j) == 0)) {
+						que.push(Point(j, i));
+						labels.at <short>(i, j) = k;
+						med = ((n)*med + (*H).at<uchar>(i, j)) / (n + 1);
+						n++;
+					}
+				}
+			}
+			que.pop();
+
+		}
+
+		Mat dst = Mat::zeros((*H).size(), CV_8UC1);
+		for (int i = 0; i < dst.rows; i++) {
+			for (int j = 0; j < dst.cols; j++) {
+				if (labels.at <short>(i, j) == 1)
+					dst.at<uchar>(i, j) = 255;
+				else
+					dst.at<uchar>(i, j) = 0;
+
+			}
+		}
+
+		imshow("HCallBack", dst);
+		//POSTPROCESARE
+		Mat rez = dst.clone();
+
+		Mat element = getStructuringElement(MORPH_RECT, Size(3, 3));
+		erode(rez, rez, element, Point(-1, -1), 2);
+		dilate(rez, rez, element, Point(-1, -1), 6);
+		erode(rez, rez, element, Point(-1, -1), 2);
+		imshow("Post-procesare", rez);
+	}
+}
+
+void Lab4MouseClick()
+{
+	Mat src;
+	// Read image from file
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		src = imread(fname);
+		int height = src.rows;
+		int width = src.cols;
+		Mat gauss;
+		GaussianBlur(src, gauss, Size(5, 5), 0.8, 0.8);
+
+		Mat dstH = Mat(height, width, CV_8UC1);
+		Mat dstS = Mat(height, width, CV_8UC1);
+		Mat dstV = Mat(height, width, CV_8UC1);
+
+
+		Mat hsvImg;
+		cvtColor(src, hsvImg, COLOR_BGR2HSV);
+		Mat channels[3];
+		split(hsvImg, channels);
+
+		dstH = channels[0];
+		dstS = channels[1];
+		dstV = channels[2];
+		dstH = dstH * 255 / 180;
+
+
+		namedWindow("My Window", 1);
+
+		setMouseCallback("My Window", Lab4MyCallBackFunc, &dstH);
+		imshow("My Window", src);
+
+		//show the image
+
+		// Wait until user press some key
+		waitKey(0);
+	}
+}
+
+// LAB 5
+void colturiHarris(Mat src)
+{
+	Mat dst, dst_norm, dst_norm_scaled;
+	dst = Mat::zeros(src.size(), CV_32FC1);
+
+	int blockSize = 2;
+	int apertureSize = 3;
+	double k = 0.04;
+
+	cornerHarris(src, dst, blockSize, apertureSize, k, BORDER_DEFAULT);
+	normalize(dst, dst_norm, 0, 255, NORM_MINMAX, CV_32FC1, Mat());
+	convertScaleAbs(dst_norm, dst_norm_scaled);
+
+	for (int j = 5; j < dst_norm.rows - 5; j++)
+	{
+		for (int i = 5; i < dst_norm.cols - 5; i++)
+		{
+			int max = 0;
+			if ((int)dst_norm.at<float>(j, i) > 150)
+			{
+				for (int k = j - 5; k < j + 5; k++)
+				{
+					for (int p = i - 5; p < i + 5; p++)
+					{
+						if ((int)dst_norm.at<float>(k, p) > max)
+							max = (int)dst_norm.at<float>(k, p);
+					}
+				}
+
+				if ((int)dst_norm.at<float>(j, i) == max)
+				{
+					circle(dst_norm_scaled, Point(i, j), 5, Scalar(0), 1, 8, 0);
+				}
+
+			}
+		}
+	}
+	imshow("Harris", dst_norm_scaled);
+}
+
+void cornerDetection()
+{
+	Mat src, dst;
+
+	vector<Point2f> corners;
+	int maxCorners = 100;
+	double qualityLevel = 0.01;
+	double minDistance = 10;
+	int blockSize = 3;
+	bool useHarrisDetector = true;
+	double k = 0.04;
+	Size winSize = Size(5, 5);
+	Size zeroZone = Size(-1, -1);
+
+
+	char fname[MAX_PATH];
+
+	while (openFileDlg(fname))
+	{
+		src = imread(fname);
+		dst = src.clone();
+		cvtColor(src, src, COLOR_BGR2GRAY);
+		GaussianBlur(src, src, Size(5, 5), 0.8, 0.8);
+
+		goodFeaturesToTrack(src,
+			corners,
+			maxCorners,
+			qualityLevel,
+			minDistance,
+			Mat(),
+			blockSize,
+			useHarrisDetector,
+			k);
+
+		for (int i = 0; i < corners.size(); i++)
+		{
+			circle(dst, corners[i], 3, Scalar(0, 255, 0));
+		}
+
+		TermCriteria criteria = TermCriteria(TermCriteria::EPS + TermCriteria::MAX_ITER, 40, 0.001);
+		cornerSubPix(src, corners, winSize, zeroZone, criteria);
+
+		ofstream f;
+		f.open("fis.txt");
+
+		for (int i = 0; i < corners.size(); i++)
+		{
+			f << " -- Refined Corner [" << i << "]  (" << corners[i].x << "," << corners[i].y << ")" << endl;
+		}
+
+		colturiHarris(src);
+
+
+		imshow("Src", src);
+		imshow("Dst", dst);
+		waitKey(0);
+	}
+}
+
+// Lab 6
+void Lab6Video(int method) {
+	char c = 0;
+
+	VideoCapture cap("Videos/laboratory.AVI");
+	if (!cap.isOpened()) {
+		printf("Cannot open video capture device.\n");
+		waitKey(0);
+		return;
+	}
+
+	Mat frame, gray; //current frame: original and gray
+	Mat backgnd; // background model
+	Mat diff; //difference image: |frame_gray - bacgnd|
+	Mat dst; //output image/frame
+	int frameNum = -1; //current frame counter
+
+	// method =
+	// 1 - frame difference
+	// 2 - running average
+	// 3 - running average with selectivity
+	const unsigned char Th = 15;
+	const double alpha = 0.05;
+
+	for (;;) {
+		cap >> frame;
+		double t = (double)getTickCount();
+		if (frame.empty())
+		{
+			printf("End of video file\n");
+			break;
+		}
+		++frameNum;
+		if (frameNum == 0)
+			imshow("sursa", frame);
+
+		cvtColor(frame, gray, COLOR_BGR2GRAY);
+		dst = gray.clone();
+		//dst = Mat::zeros(gray.size(), gray.type());
+
+		const int channels_gray = gray.channels();
+
+		if (channels_gray > 1)
+			return;
+
+		if (frameNum > 0)
+		{
+			absdiff(gray, backgnd, diff);
+			switch (method) {
+			case 1:
+				backgnd = gray.clone();
+				for (int i = 0; i < diff.rows; i++) {
+					for (int j = 0; j < diff.cols; j++) {
+						if (diff.at<uchar>(i, j) > Th)
+							dst.at<uchar>(i, j) = 255;
+					}
+				}
+				break;
+			case 2:
+				addWeighted(gray, alpha, backgnd, 1.0 - alpha, 0, backgnd);
+				for (int i = 0; i < diff.rows; i++) {
+					for (int j = 0; j < diff.cols; j++) {
+						if (diff.at<uchar>(i, j) > 25)
+							dst.at<uchar>(i, j) = 255;
+					}
+				}
+				break;
+			case 3:
+				for (int i = 0; i < diff.rows; i++) {
+					for (int j = 0; j < diff.cols; j++) {
+						if (diff.at<uchar>(i, j) > 30)
+							dst.at<uchar>(i, j) = 255;
+						else
+							backgnd.at<uchar>(i, j) = alpha * gray.at<uchar>(i, j) + (1.0 - alpha) * backgnd.at<uchar>(i, j);
+					}
+				}
+				break;
+			}
+			imshow("sursa", gray);
+
+			imshow("dest before morphs", dst);
+			Mat element = getStructuringElement(MORPH_CROSS, Size(3, 3));
+			erode(dst, dst, element, Point(-1, -1), 2);
+			dilate(dst, dst, element, Point(-1, -1), 2);
+			imshow("dest after morphs", dst);
+			imshow("diff", diff);
+		}
+		else
+			backgnd = gray.clone();
+
+		t = ((double)getTickCount() - t) / getTickFrequency();
+
+		printf("%d - %.3f [ms]\n", frameNum, t * 1000);
+		c = waitKey(0);
+		if (c == 27) {
+			printf("ESC pressed - playback finished\n");
+			break;
+		}
+	}
+}
+
+// Lab 7
+void calcOpticalFlowHS(const Mat& prev, const Mat& crnt, float lambda, int n0, Mat& flow)
+{
+	Mat vx = Mat::zeros(crnt.size(), CV_32FC1);
+	Mat vy = Mat::zeros(crnt.size(), CV_32FC1);
+	Mat Et = Mat::zeros(crnt.size(), CV_32FC1);
+	Mat Ex, Ey;
+	Sobel(crnt, Ex, CV_32F, 1, 0);
+	Sobel(crnt, Ey, CV_32F, 0, 1);
+	Mat prev_float, crnt_float;
+	prev.convertTo(prev_float, CV_32FC1);
+	crnt.convertTo(crnt_float, CV_32FC1);
+	Et = crnt_float - prev_float;
+
+	for (int itNo = 0; itNo < n0; itNo++)
+	{
+		for (int i = 1; i < vx.rows - 1; i++)
+		{
+			for (int j = 1; j < vx.cols - 1; j++)
+			{
+				vx.at<float>(i, j) = (vx.at<float>(i - 1, j) + vx.at<float>(i, j + 1) +
+					vx.at<float>(i, j - 1) + vx.at<float>(i + 1, j)) / 4;
+				vy.at<float>(i, j) = (vy.at<float>(i - 1, j) + vy.at<float>(i, j + 1) +
+					vy.at<float>(i, j - 1) + vy.at<float>(i + 1, j)) / 4;
+				float alfa;
+				alfa = lambda * (Ex.at<float>(i, j) * vx.at<float>(i, j) + Ey.at<float>(i, j) * vy.at<float>(i, j) + Et.at<float>(i, j))
+					/ (1 + lambda * (Ex.at<float>(i, j) * Ex.at<float>(i, j) + Ey.at<float>(i, j) * Ey.at<float>(i, j)));
+				vx.at<float>(i, j) = vx.at<float>(i, j) - alfa * Ex.at<float>(i, j);
+				vy.at<float>(i, j) = vy.at<float>(i, j) - alfa * Ey.at<float>(i, j);
+			}
+		}
+
+	}
+
+	flow = convert2flow(vx, vy);
+	Mat Ex_gray, Ey_gray, Et_gray, vx_gray, vy_gray;
+	normalize(Ex, Ex_gray, 0, 255, NORM_MINMAX, CV_8UC1, Mat());
+	normalize(Ey, Ey_gray, 0, 255, NORM_MINMAX, CV_8UC1, Mat());
+	normalize(Et, Et_gray, 0, 255, NORM_MINMAX, CV_8UC1, Mat());
+	normalize(vx, vx_gray, 0, 255, NORM_MINMAX, CV_8UC1, Mat());
+	normalize(vy, vy_gray, 0, 255, NORM_MINMAX, CV_8UC1, Mat());
+	imshow("Ex", Ex_gray);
+	imshow("Ey", Ey_gray);
+	imshow("Et", Et_gray);
+	imshow("vx", vx_gray);
+	imshow("vy", vy_gray);
+}
+
+void Horn_Schunk()
+{
+	Mat frame, crnt;
+	Mat prev;
+	Mat dst;
+	Mat flow;
+	char folderName[MAX_PATH];
+	char fname[MAX_PATH];
+	if (openFolderDlg(folderName) == 0)
+		return;
+	FileGetter fg(folderName, "bmp");
+	int n = 8;
+	float lambda = 10.0f;
+	int frameNum = -1;
+	while (fg.getNextAbsFile(fname))
+	{
+		crnt = imread(fname, IMREAD_GRAYSCALE);
+		const char* WIN_DST = "DST"; //window for the destination (processed) image
+		namedWindow(WIN_DST, WINDOW_AUTOSIZE);
+		moveWindow("DST", 10 + crnt.cols, 0);
+		GaussianBlur(crnt, crnt, Size(5, 5), 0.8, 0.8);
+		++frameNum;
+
+
+		if (frameNum > 0)
+		{
+			double t = (double)getTickCount();
+			calcOpticalFlowHS(prev, crnt, lambda, n, flow);
+			t = ((double)getTickCount() - t) / getTickFrequency();
+			printf("%d - %.3f [ms]\n", frameNum, t * 1000);
+			showFlow("DST", prev, flow, 1, 1.5, true, true, false);
+
+		}
+		imshow("Original", crnt);
+		prev = crnt.clone();
+		int c = waitKey(0);
+		if (c == 27) {
+			printf("ESC pressed - playback finished\n\n");
+		}
+	}
+}
+
+void fluxOptic()
+{
+	Mat frame, crnt;
+	Mat prev;
+	Mat dst;
+	Mat flow;
+	char folderName[MAX_PATH];
+	char fname[MAX_PATH];
+	if (openFolderDlg(folderName) == 0)
+		return;
+	FileGetter fg(folderName, "bmp");
+
+	int frameNum = -1;
+	char c;
+
+	vector<Point2f> prev_pts;
+	vector<Point2f> crnt_pts;
+	vector<uchar> status;
+	vector<float> error;
+	Size winSize = Size(21, 21);
+	int maxLevel = 3;
+	TermCriteria criteria = TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 20, 0.03);
+	int flags = 0;
+	double minEigThreshold = 1e-4;
+
+	int maxCorners = 100;
+	double qualityLevel = 0.01;
+	double minDistance = 10;
+	int blockSize = 3;
+	bool useHarrisDetector = true;
+	double k = 0.04;
+
+	while (fg.getNextAbsFile(fname))
+
+	{
+		crnt = imread(fname, IMREAD_GRAYSCALE);
+		const char* WIN_DST = "dst"; //window for the destination (processed) image
+		namedWindow(WIN_DST, WINDOW_AUTOSIZE);
+		moveWindow("dst", 10 + crnt.cols, 0);
+		GaussianBlur(crnt, crnt, Size(5, 5), 0.8, 0.8);
+		++frameNum;
+
+		//cvtColor(frame, crnt, CV_BGR2GRAY);
+		//GaussianBlur(crnt, crnt, Size(5, 5), 0.8, 0.8);
+
+		if (frameNum > 0)
+		{
+			double t = (double)getTickCount();
+			//calcOpticalFlowHS(prev, crnt, 10, 16, flow);
+			t = ((double)getTickCount() - t) / getTickFrequency();
+			printf("%d - %.3f [ms]\n", frameNum, t * 1000);
+			//showFlow("dst1", prev, flow, 1, 1.5, true, true, false);
+
+			goodFeaturesToTrack(prev,prev_pts,maxCorners,qualityLevel,minDistance,Mat(),blockSize,useHarrisDetector,k);
+
+			calcOpticalFlowPyrLK(prev, crnt, prev_pts, crnt_pts, status, error,winSize, maxLevel, criteria);
+
+			showFlowSparse("dst2", prev, prev_pts, crnt_pts, status, error, 2, true, true, true);
+
+		}
+
+		prev = crnt.clone();
+		c = waitKey(0);
+
+		if (c == 27)
+		{
+			printf("ESC pressed - playback finished\n\n");
+			break;
+		}
+	}
+}
+
+//Lab8
+void Lab8() {
+
+	Mat frame, crnt;
+	Mat prev;
+	Mat dst;
+	Mat flow;
+	char folderName[MAX_PATH];
+	char fname[MAX_PATH];
+	if (openFolderDlg(folderName) == 0)
+		return;
+	FileGetter fg(folderName, "bmp");
+	int frameNum = -1;
+	makeColorwheel();
+	make_HSI2RGB_LUT();
+	while (fg.getNextAbsFile(fname))
+	{
+		crnt = imread(fname, IMREAD_GRAYSCALE);
+		double t = (double)getTickCount();
+		GaussianBlur(crnt, crnt, Size(5, 5), 0.8, 0.8);
+		++frameNum;
+
+		if (frameNum > 0)
+		{
+			double t = (double)getTickCount();
+
+			int winSize = 11;
+			calcOpticalFlowFarneback(prev, crnt, flow, 0.5, 3, winSize, 10, 6, 1.5, 0);
+
+			t = ((double)getTickCount() - t) / getTickFrequency();
+			printf("%d - %.3f [ms]\n", frameNum, t * 1000);
+
+			showFlowDense("rez", crnt, flow, 0.5, 1);
+			int* hist_dir;
+			hist_dir = new int[360] { 0 };
+
+			for (int i = 0; i < crnt.rows; i++) {
+				for (int j = 0; j < crnt.cols; j++) {
+					Point2f f = flow.at<Point2f>(i, j);
+					float dir_rad = CV_PI + atan2(-f.y, -f.x);
+					int dir_deg = (dir_rad * 180) / CV_PI;
+					dir_deg = dir_deg % 360;
+					float mag = sqrt(pow(f.x, 2) + pow(f.y, 2));
+					if (dir_deg >= 0 && dir_deg < 360) {
+						if (mag >= 1)
+							hist_dir[dir_deg]++;
+					}
+				}
+			}
+			showHistogramDir("hist", hist_dir, 360, 200, true);
+
+		}
+		prev = crnt.clone();
+
+		int c = waitKey(0);
+		if (c == 27) {
+			printf("ESC pressed - playback finished\n\n");
+		}
+	}
+}
+
+
+//Lab9
+CascadeClassifier face_cascade; // cascade clasifier object for face
+CascadeClassifier eyes_cascade; // cascade clasifier object for eyes
+CascadeClassifier nose_cascade;
+CascadeClassifier mouth_cascade;
+
+void FaceDetectandDisplay(const string& window_name, Mat frame, int minFaceSize, int minEyeSize) {
+	std::vector<Rect> faces;
+	Mat frame_gray;
+	cvtColor(frame, frame_gray, COLOR_BGR2GRAY);
+	equalizeHist(frame_gray, frame_gray);
+
+	String face_cascade_name = "haarcascade_frontalface_alt.xml";
+	String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
+	String mouth_cascade_name = "haarcascade_mcs_mouth.xml";
+	String nose_cascade_name = "haarcascade_mcs_nose.xml";
+	// Load the cascades
+	if (!face_cascade.load(face_cascade_name))
+	{
+		printf("Error loading face cascades !\n");
+		return;
+	}
+	if (!eyes_cascade.load(eyes_cascade_name))
+	{
+		printf("Error loading eyes cascades !\n");
+		return;
+	}
+	if (!mouth_cascade.load(mouth_cascade_name))
+	{
+		printf("Error loading mouth cascades !\n");
+		return;
+	}
+	if (!nose_cascade.load(nose_cascade_name))
+	{
+		printf("Error loading nose cascades !\n");
+		return;
+	}
+
+
+	//-- Detect faces
+	face_cascade.detectMultiScale(frame_gray, faces, 1.1, 2, 0 | CASCADE_SCALE_IMAGE,
+		Size(minFaceSize, minFaceSize));
+	for (int i = 0; i < faces.size(); i++)
+	{
+		// get the center of the face
+		Point center(faces[i].x + faces[i].width * 0.5, faces[i].y + faces[i].height * 0.5);
+		// draw circle around the face
+		ellipse(frame, center, Size(faces[i].width * 0.5, faces[i].height * 0.5), 0, 0,
+			360, Scalar(255, 0, 255), 4, 8, 0);
+		Mat faceROI = frame_gray(faces[i]);
+		std::vector<Rect> eyes;
+		//-- In each face (rectangular ROI), detect the eyes
+		eyes_cascade.detectMultiScale(faceROI, eyes, 1.1, 2, 0 | CASCADE_SCALE_IMAGE,
+			Size(minEyeSize, minEyeSize));
+		for (int j = 0; j < eyes.size(); j++)
+		{
+			// get the center of the eye
+			//atentie la modul in care se calculeaza pozitia absoluta a centrului ochiului
+			// relativa la coltul stanga-sus al imaginii:
+			Point center(faces[i].x + eyes[j].x + eyes[j].width * 0.5,
+				faces[i].y + eyes[j].y + eyes[j].height * 0.5);
+			int radius = cvRound((eyes[j].width + eyes[j].height) * 0.25);
+			// draw circle around the eye
+			circle(frame, center, radius, Scalar(255, 0, 0), 4, 8, 0);
+		}
+
+		Rect mouth_rect;
+		mouth_rect.x = faces[i].x;
+		mouth_rect.y = faces[i].y + 0.7 * faces[i].height;
+		mouth_rect.width = faces[i].width;
+		mouth_rect.height = 0.29 * faces[i].height;
+		Mat mouth_ROI = frame_gray(mouth_rect);
+		std::vector<Rect> mouth;
+		//-- In each face (rectangular ROI), detect the mouth
+		int minMouthSize = minFaceSize / 5;
+		mouth_cascade.detectMultiScale(mouth_ROI, mouth, 1.1, 1, 0 | CASCADE_SCALE_IMAGE, Size(minMouthSize, minMouthSize));
+
+		for (int j = 0; j < mouth.size(); j++)
+		{
+			Rect m;
+			m = mouth[j];
+			m.x = (m.x) + faces[i].x;
+			m.y = faces[i].y + 0.7 * faces[i].height;
+			rectangle(frame, m, Scalar(0, 0, 255), 4, 8, 0);
+
+		}
+
+		Rect nose_rect;
+		nose_rect.x = faces[i].x;
+		nose_rect.y = faces[i].y + 0.4 * faces[i].height;
+		nose_rect.width = faces[i].width;
+		nose_rect.height = 0.35 * faces[i].height;
+		Mat nose_ROI = frame_gray(nose_rect);
+		std::vector<Rect> nose;
+		//-- In each face (rectangular ROI), detect the mouth
+		int minNoseSize = minFaceSize / 5;
+		nose_cascade.detectMultiScale(nose_ROI, nose, 1.1, 1, 0 | CASCADE_SCALE_IMAGE, Size(minNoseSize, minNoseSize));
+
+		for (int j = 0; j < nose.size(); j++)
+		{
+			Rect m;
+			m = nose[j];
+			m.x = (m.x) + faces[i].x;
+			m.y = faces[i].y + 0.35 * faces[i].height;
+			rectangle(frame, m, Scalar(0, 255, 255), 4, 8, 0);
+
+		}
+
+	}
+	imshow(window_name, frame);
+	waitKey(0);
+}
+
+void lab9() {
+	Mat src = imread("Images/Face/Facesx12.bmp", IMREAD_COLOR);
+	Mat dst = src.clone();
+	int minFaceSize = 30;
+	int minEyeSize = minFaceSize / 5; 
+	FaceDetectandDisplay("WIN_DST", dst, minFaceSize, minEyeSize);
+}
+
+void FaceDetectandDisplayEyes(const string& window_name, Mat frame,
+	int minFaceSize, int minEyeSize)
+{
+	std::vector<Rect> faces;
+	Mat frame_gray;
+	cvtColor(frame, frame_gray, COLOR_BGR2GRAY);
+	equalizeHist(frame_gray, frame_gray);
+	face_cascade.detectMultiScale(frame_gray, faces, 1.1, 2, 0 | CASCADE_SCALE_IMAGE,
+		Size(minFaceSize, minFaceSize));
+	for (int i = 0; i < faces.size(); i++) {
+		Point center(faces[i].x + faces[i].width * 0.5, faces[i].y + faces[i].height * 0.5);
+		ellipse(frame, center, Size(faces[i].width * 0.5, faces[i].height * 0.5), 0, 0,
+			360, Scalar(0, 255, 255), 4, 8, 0);
+		Mat faceROI = frame_gray(faces[i]);
+		std::vector<Rect> eyes;
+		eyes_cascade.detectMultiScale(faceROI, eyes, 1.1, 2, 0 | CASCADE_SCALE_IMAGE,
+			Size(minEyeSize, minEyeSize));
+		for (int j = 0; j < eyes.size(); j++)
+		{
+			Point center(faces[i].x + eyes[j].x + eyes[j].width * 0.5,
+				faces[i].y + eyes[j].y + eyes[j].height * 0.5);
+			int radius = cvRound((eyes[j].width + eyes[j].height) * 0.25);
+			circle(frame, center, radius, Scalar(0, 255, 0), 4, 8, 0);
+		}
+	}
+	imshow(window_name, frame);
+	waitKey();
+}
+
+
+void face_detect_video() {
+	String face_cascade_name = "haarcascade_frontalface_alt.xml";
+	String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
+
+	int minFaceSize = 30;
+	int minEyeSize = minFaceSize / 5;
+	if (!face_cascade.load(face_cascade_name))
+	{
+		printf("Error loading face cascades !\n");
+		return;
+	}
+
+	if (!eyes_cascade.load(eyes_cascade_name))
+	{
+		printf("Error loading eyes cascades !\n");
+		return;
+	}
+
+	char c;
+	VideoCapture cap("Videos/Megamind.avi");
+	if (!cap.isOpened()) {
+		printf("Cannot open video capture device.\n");
+		waitKey();
+		return;
+	}
+	Mat frame;
+	for (;;) {
+		double t = (double)getTickCount();
+		cap >> frame;
+		if (frame.empty())
+		{
+			printf("End of video file\n");
+			break;
+		}
+		t = ((double)getTickCount() - t) / getTickFrequency();
+		printf("Curent frame time: %.3f [ms]\n", t * 1000);
+		FaceDetectandDisplayEyes("Dst", frame, minFaceSize, minEyeSize);
+
+		c = waitKey();
+		if (c == 27) {
+			printf("ESC pressed - capture finished\n");
+			break;
+		};
+	}
+}
+
+//LAB 10
+Rect FaceDetect(const string& window_name, Mat frame, int minFaceSize, int minEyeSize, bool hasFace, bool hasNose, bool hasEyes, bool hasMouth) {
+
+	std::vector<Rect> faces;
+	Mat grayFrame;
+	cvtColor(frame, grayFrame, COLOR_BGR2GRAY);
+	equalizeHist(grayFrame, grayFrame);
+
+	face_cascade.detectMultiScale(grayFrame, faces, 1.1, 2, 0 | CASCADE_SCALE_IMAGE,
+		Size(minFaceSize, minFaceSize));
+	Rect faceROI = faces[0];
+	for (int i = 0; i < faces.size(); i++)
+	{
+		Point center(faces[i].x + faces[i].width * 0.5, faces[i].y + faces[i].height * 0.5);
+		Point first(faces[i].x, faces[i].y);
+		Point second(faces[i].x + faces[i].width, faces[i].y + faces[i].height);
+
+		rectangle(frame, faces[0], Scalar(0, 0, 255));
+
+		std::vector<Rect> eyes;
+		Mat faceROI = grayFrame(faces[i]);
+		eyes_cascade.detectMultiScale(faceROI, eyes, 1.1, 2, 0 | CASCADE_SCALE_IMAGE,
+			Size(minEyeSize, minEyeSize));
+
+		for (int j = 0; hasEyes && j < eyes.size(); j++)
+		{
+			Point center(faces[i].x + eyes[j].x + eyes[j].width * 0.5,
+				faces[i].y + eyes[j].y + eyes[j].height * 0.5);
+			int radius = cvRound((eyes[j].width + eyes[j].height) * 0.25);
+			circle(frame, center, radius, Scalar(255, 0, 0), 4, 8, 0);
+		}
+
+		Rect rect_mouth;
+		rect_mouth.x = faces[i].x + faces[i].width / 3;
+		rect_mouth.y = faces[i].y + 0.65 * faces[i].height;
+		rect_mouth.width = faces[i].width / 2;
+		rect_mouth.height = 0.35 * faces[i].height;
+
+		Mat mouth_ROI = grayFrame(rect_mouth);
+		std::vector<Rect> mouth;
+		int minMouthSize = 0.2 * minFaceSize;
+		mouth_cascade.detectMultiScale(mouth_ROI, mouth, 1.1, 1, 0 | CASCADE_SCALE_IMAGE, Size(minMouthSize, minMouthSize));
+
+		for (int j = 0; hasMouth && j < mouth.size(); j++)
+		{
+			Point center(rect_mouth.x + mouth[j].x + mouth[j].width * 0.5,
+				rect_mouth.y + mouth[j].y + mouth[j].height * 0.5);
+			int radius = cvRound((mouth[j].width + mouth[j].height) * 0.25);
+			circle(frame, center, radius, Scalar(0, 255, 0), 4, 8, 0);
+		}
+		Rect rect_nose;
+		rect_nose.x = faces[i].x + faces[i].width / 3;
+		rect_nose.y = faces[i].y + 0.3 * faces[i].height;
+		rect_nose.width = faces[i].width / 2;
+		rect_nose.height = 0.5 * faces[i].height;
+
+		Mat nose_ROI = grayFrame(rect_nose);
+		std::vector<Rect> nose;
+		int minNoseSize = 0.10 * minFaceSize;
+		nose_cascade.detectMultiScale(nose_ROI, nose, 1.1, 1, 0 | CASCADE_SCALE_IMAGE, Size(minNoseSize, minNoseSize));
+
+		for (int j = 0; hasNose && j < nose.size(); j++)
+		{
+			Point center(rect_nose.x + nose[j].x + nose[j].width * 0.5,
+				rect_nose.y + nose[j].y + nose[j].height * 0.5);
+			int radius = cvRound((nose[j].width + nose[j].height) * 0.25);
+			circle(frame, center, radius, Scalar(0, 0, 255), 4, 8, 0);
+		}
+	}
+	imshow(window_name, frame);
+	return faceROI;
+	waitKey();
+}
+
+void lab10() {
+
+	String face_cascade_name = "haarcascade_frontalface_alt.xml";
+	String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
+	String mouth_cascade_name = "haarcascade_mcs_mouth.xml";
+	String nose_cascade_name = "haarcascade_mcs_nose.xml";
+
+	if (!face_cascade.load(face_cascade_name))
+	{
+		printf("Error loading face cascades !\n");
+		return;
+	}
+	if (!eyes_cascade.load(eyes_cascade_name))
+	{
+		printf("Error loading eyes cascades !\n");
+		return;
+	}
+	if (!mouth_cascade.load(mouth_cascade_name))
+	{
+		printf("Error loading mouth cascades !\n");
+		return;
+	}
+	if (!nose_cascade.load(nose_cascade_name))
+	{
+		printf("Error loading nose cascades !\n");
+		return;
+	}
+	VideoCapture cap("Videos/test_msv1_short.avi");
+	if (!cap.isOpened()) {
+		printf("Cannot open video capture device.\n");
+		waitKey();
+		return;
+	}
+	Mat frame, gray;
+	Mat backgnd;
+	Mat diff;
+	Mat dst;
+	char c;
+	int frameNum = -1;
+
+	cap.read(frame);
+	const unsigned char Th = 25;
+	const double alpha = 0.05;
+
+	for (;;) {
+		double t = (double)getTickCount();
+
+		cap >> frame;
+		if (frame.empty())
+		{
+			printf("End of video file\n");
+			break;
+		}
+		++frameNum;
+		if (frameNum == 0)
+			imshow("src", frame);
+		cvtColor(frame, gray, COLOR_BGR2GRAY);
+		//GaussianBlur(gray, gray, Size(5, 5), 0.8, 0.8);
+		dst = Mat::zeros(gray.size(), gray.type());
+		const int channels_gray = gray.channels();
+		if (channels_gray > 1)
+			return;
+		if (frameNum > 0)
+		{
+			int minFaceSize = 50;
+			int minEyeSize = minFaceSize / 5;
+			Rect faceROI = FaceDetect("face", frame, minFaceSize, minEyeSize, true, false, false, false);
+			absdiff(gray, backgnd, diff);
+			backgnd = gray.clone();
+			imshow("diff", diff);
+			for (int i = 0; i < dst.rows; i++)
+			{
+				for (int j = 0; j < dst.cols; j++) {
+					if (diff.at<uchar>(i, j) > Th)
+					{
+						dst.at<uchar>(i, j) = 255;
+					}
+				}
+			}
+			Mat element = getStructuringElement(MORPH_CROSS, Size(3, 3));
+			Mat temp = dst(faceROI);
+			imshow("src", frame);
+			erode(temp, temp, element, Point(-1, -1), 1);
+			dilate(temp, temp, element, Point(-1, -1), 1);
+			//dilate(temp, temp, element, Point(-1, -1), 1);
+			//erode(temp, temp, element, Point(-1, -1), 1);
+			imshow("tempFinal", temp);
+
+			typedef struct {
+				double arie;
+				double xc;   
+				double yc;
+			} mylist;
+			vector<mylist> candidates;
+			candidates.clear();
+			vector<vector<Point> > contours;
+			vector<Vec4i> hierarchy;
+			Mat roi = Mat::zeros(temp.rows, temp.cols, CV_8UC3);
+			findContours(temp, contours, hierarchy, RETR_CCOMP, CHAIN_APPROX_SIMPLE);
+			Moments m;
+			if (contours.size() > 0)
+			{
+				int idx = 0;
+				for (; idx >= 0; idx = hierarchy[idx][0])
+				{
+					const vector<Point>& c = contours[idx];
+					m = moments(c);
+					double arie = m.m00;
+					double xc = m.m10 / m.m00;
+					double yc = m.m01 / m.m00;
+					Scalar color(rand() & 255, rand() & 255, rand() & 255);
+					drawContours(roi, contours, idx, color, FILLED, 8, hierarchy);
+					mylist elem;
+					elem.arie = arie;
+					elem.xc = xc;
+					elem.yc = yc;
+					candidates.push_back(elem);
+				}
+			}
+			if (candidates.size() >= 2)
+			{
+				mylist leftEye = candidates[0], rightEye = candidates[0];
+				double arie1 = 0, arie2 = 0;
+				for (mylist e : candidates)
+				{
+					if (e.arie > arie1)
+					{
+						arie2 = arie1;
+						leftEye = rightEye;
+						arie1 = e.arie;
+						rightEye = e;
+					}
+					else
+					{
+						if (e.arie > arie2)
+						{
+							arie2 = e.arie;
+							leftEye = e;
+						}
+					}
+				}
+				if ((abs(rightEye.yc - leftEye.yc) < 0.1 * faceROI.height && abs(rightEye.yc - leftEye.yc) < (faceROI.height) / 2))
+
+					if (abs(rightEye.xc - leftEye.xc) > 0.3 * faceROI.width && abs(rightEye.xc - leftEye.xc) < 0.5 * faceROI.width)
+						if (rightEye.xc - leftEye.xc > 0) {
+							if (leftEye.xc <= (faceROI.width) / 2 && rightEye.xc >= (faceROI.width) / 2)
+							{
+								DrawCross(roi, Point(rightEye.xc, rightEye.yc), 15, Scalar(255, 0, 0), 2);
+								DrawCross(roi, Point(leftEye.xc, leftEye.yc), 15, Scalar(0, 0, 255), 2);
+								rectangle(frame, faceROI, Scalar(0, 255, 0));
+								imshow("sursa", frame);
+							}
+						}
+						else if (leftEye.xc >= (faceROI.width) / 2 && rightEye.xc <= (faceROI.width) / 2) {
+							{
+								DrawCross(roi, Point(leftEye.xc, leftEye.yc), 15, Scalar(0, 255, 255), 2);
+								DrawCross(roi, Point(rightEye.xc, rightEye.yc), 15, Scalar(0, 255, 0), 2);
+								rectangle(frame, faceROI, Scalar(0, 255, 0));
+								imshow("sursa", frame);
+							}
+						}
+			}
+			imshow("colored", roi);
+		}
+		else
+			backgnd = gray.clone();
+		c = waitKey(0);
+		if (c == 27) {
+			printf("ESC pressed - playback finished\n");
+			break;
+		}
+		t = ((double)getTickCount() - t) / getTickFrequency();
+		printf("%d - %.3f [ms]\n", frameNum, t * 1000);
+	}
+}
+
+//LAB 11
+CascadeClassifier full_cascade; // cascade clasifier object for face
+CascadeClassifier lower_cascade; // cascade clasifier object for eyes
+CascadeClassifier upper_cascade;
+
+
+void PersonDetectandDisplay(const string& window_name, Mat frame, int minPersonSize)
+{
+	std::vector<Rect>bodies, ubodies, lbodies, candidates;
+	Mat frame_gray, gray;
+	cvtColor(frame, frame_gray, COLOR_BGR2GRAY);
+	equalizeHist(frame_gray, frame_gray);
+
+	double t = (double)getTickCount(); // Get the crntent time [s]
+
+	full_cascade.detectMultiScale(frame_gray, bodies, 1.1, 2, 0 | CASCADE_SCALE_IMAGE, Size(minPersonSize * 0.3f, minPersonSize));
+	upper_cascade.detectMultiScale(frame_gray, ubodies, 1.1, 2, 0 | CASCADE_SCALE_IMAGE, Size(minPersonSize * 0.3f, minPersonSize * 0.5));
+	lower_cascade.detectMultiScale(frame_gray, lbodies, 1.1, 2, 0 | CASCADE_SCALE_IMAGE, Size(minPersonSize * 0.3f, minPersonSize * 0.5));
+
+	for (int i = 0; i < bodies.size(); i++)
+	{
+		// get the center of the face
+		Point center(bodies[i].x + bodies[i].width * 0.5, bodies[i].y + bodies[i].height * 0.5);
+		// draw square around the face
+		rectangle(frame, bodies[i], Scalar(255, 255, 0), 2, 8, 0);
+	}
+	for (int i = 0; i < ubodies.size(); i++)
+	{
+		// get the center of the face
+		Point center(ubodies[i].x + ubodies[i].width * 0.5, ubodies[i].y + ubodies[i].height * 0.5);
+		// draw square around the face
+		rectangle(frame, ubodies[i], Scalar(255, 0, 255), 2, 8, 0);
+
+	}
+	for (int i = 0; i < lbodies.size(); i++)
+	{
+		// get the center of the face
+		Point center(lbodies[i].x + lbodies[i].width * 0.5, lbodies[i].y + lbodies[i].height * 0.5);
+		// draw square around the face
+		rectangle(frame, lbodies[i], Scalar(0, 255, 255), 2, 8, 0);
+
+	}
+	int l = 0;
+	for (int i = 0; i < ubodies.size(); i++) {
+		for (int j = 0; j < lbodies.size(); j++) {
+			Point c1(ubodies[i].x + ubodies[i].width * 0.5, ubodies[i].y + ubodies[i].height * 0.5);
+			Point c2(lbodies[j].x + lbodies[j].width * 0.5, lbodies[j].y + lbodies[j].height * 0.5);
+			double dx = abs(c1.x - c2.x);
+			double dy = abs(c1.y - c2.y);
+			if ((dx < 0.4 * max(ubodies[i].width, lbodies[j].width)) && (dy > 0) && (dy < 0.6 * (ubodies[i].height + lbodies[j].height)))
+			{
+				Rect cand = ubodies[i] | lbodies[j];
+				candidates.push_back(cand);
+			}
+
+		}
+	}
+
+	//compute 0.99
+
+	for (int i = 0; i < candidates.size(); i++)
+	{
+		int center1x = (candidates[i].x + candidates[i].x + candidates[i].width) / 2;
+		int center1y = (candidates[i].y + candidates[i].y + candidates[i].height) / 2;
+
+		for (int j = 0; j < candidates.size(); j++) {
+			int center2x = (candidates[j].x + candidates[j].x + candidates[j].width) / 2;
+			int center2y = (candidates[j].y + candidates[j].y + candidates[j].height) / 2;
+
+			for (int k = 0; k < candidates.size(); k++) {
+				int center3x = (candidates[k].x + candidates[k].x + candidates[k].width) / 2;
+				int center3y = (candidates[k].y + candidates[k].y + candidates[k].height) / 2;
+				if (abs(center1x - center2x) < 100 && abs(center3x - center1x) < 100 && abs(center1y - center3y) < 100 && abs(center2y - center1y) < 100)printf("0.99\n");
+			}
+		}
+	}
+
+	// COMPUTE 0.66
+	for (int i = 0; i < candidates.size(); i++)
+	{
+		int center1x = (candidates[i].x + candidates[i].x + candidates[i].width) / 2;
+		int center1y = (candidates[i].y + candidates[i].y + candidates[i].height) / 2;
+
+		for (int j = 0; j < candidates.size(); j++) {
+			int center2x = (candidates[j].x + candidates[j].x + candidates[j].width) / 2;
+			int center2y = (candidates[j].y + candidates[j].y + candidates[j].height) / 2;
+			if (abs(center1x - center2x) < 100 && abs(center1y - center2y) < 100)printf("0.66\n");
+		}
+	}
+
+
+	t = ((double)getTickCount() - t) / getTickFrequency();
+	// Print (in the console window) the processing time in [ms]
+	printf(" %.3f [ms]\n", t * 1000);
+	imshow(window_name, frame); //-- Show what you got
+	waitKey(0);
+}
+
+void person_detection() {
+
+	//Mat src = imread("Images/Persons/person_138.bmp", CV_LOAD_IMAGE_COLOR);
+	Mat src = imread("Images/Persons/person_096.bmp", IMREAD_COLOR);
+
+	String full_cascade_name = "haarcascade_fullbody.xml";
+	String lower_cascade_name = "haarcascade_lowerbody.xml";
+	String upper_cascade_name = "haarcascade_upperbody.xml";
+	String upper_mcs_cascade_name = "haarcascade_mcs_upperbody.xml";
+	// Load the cascades
+	if (!full_cascade.load(full_cascade_name))
+	{
+		printf("Error loading full body cascades !\n");
+		return;
+	}
+	if (!lower_cascade.load(lower_cascade_name))
+	{
+		printf("Error loading lower body cascades !\n");
+		return;
+	}
+	if (!upper_cascade.load(upper_cascade_name))
+	{
+		printf("Error loading upper body cascades !\n");
+		return;
+	}
+
+
+	Mat dst = src.clone();
+	int minPersonSize = 100;
+
+	const char* WIN_DST = "Dst"; //window for the destination (processed) image
+	namedWindow(WIN_DST, WINDOW_AUTOSIZE);
+	PersonDetectandDisplay(WIN_DST, dst, minPersonSize);
+
+}
+
+
+CascadeClassifier fullbody_classifier;
+CascadeClassifier lowerbody_classifier;
+CascadeClassifier upperbody_classifier;
+
+int vertical_bias = 25;
+float area_bias = 1.1;
+int horizontal_bias = 25;
+
+bool score099(Rect fullBody, Rect upperBody, Rect lowerBody)
+{
+	Point fullBodyCenter = RectCenter(fullBody);
+	Point upperBodyCenter = RectCenter(upperBody);
+	Point lowerBodyCenter = RectCenter(lowerBody);
+
+	if (abs(fullBodyCenter.x - upperBodyCenter.x) > vertical_bias ||
+		abs(fullBodyCenter.x - lowerBodyCenter.x) > vertical_bias ||
+		abs(upperBodyCenter.x - lowerBodyCenter.x) > vertical_bias)
+	{
+		return false;
+	}
+
+	if (upperBodyCenter.y >= lowerBodyCenter.y)
+	{
+		return false;
+	}
+
+	Rect lowerOrUpper = lowerBody | upperBody;
+	Rect fullAndLowerOrUpper = fullBody & lowerOrUpper;
+
+	if (RectArea(fullAndLowerOrUpper) * area_bias < 0.7f * RectArea(fullBody))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool score066_case1(Rect upperBody, Rect lowerBody, int personHeight)
+{
+	Point upperBodyCenter = RectCenter(upperBody);
+	Point lowerBodyCenter = RectCenter(lowerBody);
+
+	if (abs(upperBodyCenter.x - lowerBodyCenter.x) > vertical_bias)
+	{
+		return false;
+	}
+
+	if (upperBodyCenter.y >= lowerBodyCenter.y)
+	{
+		return false;
+	}
+
+	if (abs(upperBodyCenter.y - lowerBodyCenter.y) > personHeight - horizontal_bias)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool score066_case2(Rect upperBody, Rect fullBody, int personHeight)
+{
+	Point upperBodyCenter = RectCenter(upperBody);
+	Point fullBodyCenter = RectCenter(fullBody);
+
+	if (abs(upperBodyCenter.x - fullBodyCenter.x) > vertical_bias)
+	{
+		return false;
+	}
+
+	if (upperBodyCenter.y >= fullBodyCenter.y)
+	{
+		return false;
+	}
+
+	if (abs(upperBodyCenter.y - fullBodyCenter.y) > personHeight - horizontal_bias)
+	{
+		return false;
+	}
+
+	Rect upperAndFull = upperBody & fullBody;
+
+	if (RectArea(upperAndFull) * area_bias < 0.5f * RectArea(fullBody))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool score066_case3(Rect lowerBody, Rect fullBody, int personHeight)
+{
+	Point lowerBodyCenter = RectCenter(lowerBody);
+	Point fullBodyCenter = RectCenter(fullBody);
+
+	if (abs(lowerBodyCenter.x - fullBodyCenter.x) > vertical_bias)
+	{
+		return false;
+	}
+
+	if (lowerBodyCenter.y <= fullBodyCenter.y)
+	{
+		return false;
+	}
+
+	if (abs(lowerBodyCenter.y - fullBodyCenter.y) > personHeight - horizontal_bias)
+	{
+		return false;
+	}
+
+	Rect lowerAndFull = lowerBody & fullBody;
+
+	if (RectArea(lowerAndFull) * area_bias < 0.5f * RectArea(fullBody))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool score033_case1(Rect fullBody, Rect upperBody, Rect lowerBody, int personHeight)
+{
+	Point fullBodyCenter = RectCenter(fullBody);
+	Point upperBodyCenter = RectCenter(upperBody);
+	Point lowerBodyCenter = RectCenter(lowerBody);
+
+	if (abs(fullBodyCenter.x - upperBodyCenter.x) > vertical_bias ||
+		abs(fullBodyCenter.x - lowerBodyCenter.x) > vertical_bias ||
+		abs(upperBodyCenter.x - lowerBodyCenter.x) > vertical_bias)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool score033_case2(Rect fullBody, Rect upperBody, Rect lowerBody, int personHeight)
+{
+	Point fullBodyCenter = RectCenter(fullBody);
+	Point upperBodyCenter = RectCenter(upperBody);
+	Point lowerBodyCenter = RectCenter(lowerBody);
+
+	if (abs(fullBodyCenter.y - upperBodyCenter.y) > personHeight - horizontal_bias ||
+		abs(fullBodyCenter.y - lowerBodyCenter.y) > personHeight - horizontal_bias ||
+		abs(upperBodyCenter.y - lowerBodyCenter.y) > personHeight - horizontal_bias)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+void DetectBody(const string& window_name, Mat frame)
+{
+	int minBodyHeight = 100;
+	int minLowerBodyHeight = minBodyHeight / 2;
+	int minUpperBodyHeight = minBodyHeight / 2;
+	int bodyWidth = 0.3 * minBodyHeight;
+
+	vector<Rect> fullBodies;
+	vector<Rect> upperBodies;
+	vector<Rect> lowerBodies;
+	Mat frame_gray;
+
+	cvtColor(frame, frame_gray, COLOR_BGR2GRAY);
+	equalizeHist(frame_gray, frame_gray);
+
+	fullbody_classifier.detectMultiScale(frame_gray, fullBodies, 1.1, 2, 0 | CASCADE_SCALE_IMAGE, Size(minBodyHeight * 0.3f, minBodyHeight));
+	upperbody_classifier.detectMultiScale(frame_gray, upperBodies, 1.1, 2, 0 | CASCADE_SCALE_IMAGE, Size(minBodyHeight * 0.3f, minBodyHeight * 0.5f));
+	lowerbody_classifier.detectMultiScale(frame_gray, lowerBodies, 1.1, 2, 0 | CASCADE_SCALE_IMAGE, Size(minBodyHeight * 0.3f, minBodyHeight * 0.5f));
+
+	for (int i = 0; i < fullBodies.size(); i++)
+	{
+		// get the center of the face
+		Point center(fullBodies[i].x + fullBodies[i].width * 0.5, fullBodies[i].y + fullBodies[i].height * 0.5);
+		// draw square around the face
+		rectangle(frame, fullBodies[i], Scalar(255, 255, 0), 2, 8, 0);
+
+	}
+	for (int i = 0; i < upperBodies.size(); i++)
+	{
+		// get the center of the face
+		Point center(upperBodies[i].x + upperBodies[i].width * 0.5, upperBodies[i].y + upperBodies[i].height * 0.5);
+		// draw square around the face
+		rectangle(frame, upperBodies[i], Scalar(255, 0, 255), 2, 8, 0);
+
+	}
+	for (int i = 0; i < lowerBodies.size(); i++)
+	{
+		// get the center of the face
+		Point center(lowerBodies[i].x + lowerBodies[i].width * 0.5, lowerBodies[i].y + lowerBodies[i].height * 0.5);
+		// draw square around the face
+		rectangle(frame, lowerBodies[i], Scalar(0, 255, 255), 2, 8, 0);
+	}
+
+	// calcul scor de incredere
+	for (int i = 0; i < fullBodies.size(); i++)
+	{
+		for (int j = 0; j < upperBodies.size(); j++)
+		{
+			for (int k = 0; k < lowerBodies.size(); k++)
+			{
+				if (score099(fullBodies[i], upperBodies[j], lowerBodies[k]))
+				{
+					printf("0.99\n\n");
+				}
+				else if (score066_case1(upperBodies[j], lowerBodies[k], minBodyHeight))
+				{
+					printf("0.66 upper lower\n\n");
+				}
+				else if (score066_case2(upperBodies[j], fullBodies[i], minBodyHeight))
+				{
+					printf("0.66 upper full\n\n");
+				}
+				else if (score066_case3(lowerBodies[k], fullBodies[i], minBodyHeight))
+				{
+					printf("0.66 lower full\n\n");
+				}
+				else if (score033_case1(fullBodies[i], upperBodies[j], lowerBodies[k], minBodyHeight) ||
+					score033_case2(fullBodies[i], upperBodies[j], lowerBodies[k], minBodyHeight))
+				{
+					printf("0.33\n\n");
+				}
+			}
+		}
+	}
+
+	imshow(window_name, frame);
+	waitKey(0);
+}
+
+void lab11()
+{
+	String fullbody_path = "./haarcascade_fullbody.xml";
+	String lowerbody_path = "./haarcascade_lowerbody.xml";
+	String upperbody_path = "./haarcascade_upperbody.xml";
+
+	if (!fullbody_classifier.load(fullbody_path))
+	{
+		printf("Error loading fullbody\n");
+		Sleep(5000);
+		return;
+	}
+
+	if (!lowerbody_classifier.load(lowerbody_path))
+	{
+		printf("Error loading lowerbody\n");
+		Sleep(5000);
+		return;
+	}
+
+	if (!upperbody_classifier.load(upperbody_path))
+	{
+		printf("Error loading upperbody\n");
+		Sleep(5000);
+		return;
+	}
+
+	Mat src;
+
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		src = imread(fname, IMREAD_COLOR);
+		if (src.empty())
+		{
+			printf("Error at loading image\n");
+			Sleep(1000);
+			return;
+		}
+
+		imshow("source", src);
+		DetectBody("result", src);
+	}
+}
+
+////////////////////////////////////
+// PROIECT DETECTAREA FETELOR PE CULOARE (UV CURS 7-8)
+////////////////////////////////////
+
+Mat getImage(string pathToImage) {
+	Mat src = imread(pathToImage, IMREAD_COLOR);
+
+	imshow("initial image", src);
+
+	return src;
+}
+
+Mat getImageCIELUV(Mat src) {
+	Mat dst = src.clone();
+
+	cvtColor(src, dst, COLOR_BGR2Luv);
+	//cvtColor(src, dst, COLOR_BGR2YCrCb);
+
+	imshow("CIELUV image", dst);
+	
+	return dst;
+}
+
+Mat blurImage(Mat img) {
+	Mat img_blurred;
+	
+	GaussianBlur(img, img_blurred, Size(5, 5), 0.8, 0.8);
+	
+	imshow("blurred image", img_blurred);
+	
+	return img_blurred;
+}
+
+
+#define HIST_SIZE 256
+
+// variabile globale pentru proiect
+int histU[HIST_SIZE]; // histograma culorii U
+int histV[HIST_SIZE]; // histograma culorii V
+
+// alte variabile pentru proiect
+int maxHistVValue = 0;
+int maxHistUValue = 0;
+
+int debug = 1;
+
+void computeMeanandStdDev(float& mean, float& std_dev, bool switchChannel) {
+
+	int a, sat, i, j;
+	int histF[HIST_SIZE]; // filtered histogram
+	std::memset(histF, 0, HIST_SIZE * sizeof(unsigned int));
+
+	//Filtrare histograma Hue (optional)
+#define FILTER_HISTOGRAM 0
+#if FILTER_HISTOGRAM == 1 //Filtering with a Gaussian filter of w=7
+	float gauss[7];
+	float sqrt2pi = sqrtf(2 * PI);
+	float sigma = 1.5;
+	float e = 2.718;
+	float sum = 0;
+	// Construire gaussian
+	for (i = 0; i < 7; i++) { //compute Gaussian filter;
+		gauss[i] = 1.0 / (sqrt2pi * sigma) * powf(e, -(float)(i - 3) * (i - 3)
+			/ (2 * sigma * sigma));
+		sum += gauss[i];
+	}
+	// Filtrare cu gaussian
+	for (j = 3; j < HIST_SIZE - 3; j++)
+	{
+		for (i = 0; i < 7; i++)
+			if (switchChannel)
+				histF[j] += (float)histU[j + i - 3] * gauss[i];
+			else
+				histF[j] += (float)histV[j + i - 3] * gauss[i];
+	}
+#elif FILTER_HISTOGRAM == 0
+	for (j = 0; j < MAX_HUE; j++)
+		if (switchChannel)
+			histF[j] = histU[j];
+		else
+			histF[j] = histV[j];
+#endif // End of "Filtrare Gaussiana Histograma a"
+	if (debug == 1)
+		if (switchChannel)
+			showHistogram("U histogram", histU, HIST_SIZE, 200, true);
+		else
+			showHistogram("V histogram", histV, HIST_SIZE, 200, true);
+
+	int valMaxHist = 0;
+	for (int i = 0; i < HIST_SIZE; ++i)
+		if (switchChannel) {
+			if (histU[i] > valMaxHist)
+				valMaxHist = histU[i];
+		}
+		else {
+			if (histV[i] > valMaxHist)
+				valMaxHist = histV[i];
+		}
+
+	for (int i = 0; i < HIST_SIZE; ++i)
+		if (histF[i] < valMaxHist / 10) //filter the values smaller than 10% of the maximum value
+			histF[i] = 0;
+	if (debug == 1)
+		if (switchChannel)
+			showHistogram("U filtered histogram", histF, HIST_SIZE, 200, true);
+		else
+			showHistogram("V filtered histogram", histF, HIST_SIZE, 200, true);
+
+
+	int M = 0;
+	int sum_hist = 0;
+	float deviation = 0.0f;
+	int L = HIST_SIZE;
+	for (int i = 0; i < HIST_SIZE; ++i)
+		M += histF[i];
+
+	for (int histVal = 0; histVal < L; ++histVal)
+		sum_hist += histVal * histF[histVal];
+
+	float compute_mean = sum_hist * 1.0f / M; //mean
+
+	for (int histVal = 0; histVal < L; ++histVal) {
+		float diff = histVal * 1.0f - compute_mean;
+		deviation += std::pow(diff, 2) * (histF[histVal] * 1.0f / M);
+	}
+
+	float compute_dev = std::sqrt(deviation);
+
+	mean = compute_mean;
+	std_dev = compute_dev;
+	if (debug == 1)
+		if (switchChannel) {
+			cout << "Mean U: " << compute_mean << " StdDev U: " << compute_dev << endl;
+		}
+		else {
+			cout << "Mean V: " << compute_mean << " StdDev V: " << compute_dev << endl;
+		}
+}
+
+void train(float& meanU, float& meanV, float& stdDevU, float& stdDevV) {
+	//Read images
+	string pathToTrain = "Images/Proiect/Training/Sample";
+	Mat images[12];
+	for (int i = 1; i <= 12; i++) {
+		string pathToImage = pathToTrain + to_string(i) + ".png";
+		Mat RGBImage = getImage(pathToImage);
+		Mat LuvImage = getImageCIELUV(RGBImage);
+
+		images->push_back(LuvImage);
+	}
+
+	//Calculate histogram for U and V	
+	memset(histU, 0, HIST_SIZE * sizeof(unsigned int));
+	memset(histV, 0, HIST_SIZE * sizeof(unsigned int));
+	
+
+	for (int imgNo = 0; imgNo < 12; imgNo++) {
+		for (int i = 0; i < images[imgNo].rows; i++) {
+			for (int j = 0; j < images[imgNo].cols; j++) {
+				//cout << to_string(images[imgNo].at<Vec3b>(i, j)[0]) << " " << to_string(images[imgNo].at<Vec3b>(i, j)[1]) << " " << to_string(images[imgNo].at<Vec3b>(i, j)[2]) << endl;
+				int uValue = images[imgNo].at<Vec3b>(i, j)[1];
+				int vValue = images[imgNo].at<Vec3b>(i, j)[2];
+				histU[uValue]++;
+				histV[vValue]++;
+			}
+		}
+	}
+	//if (debug == 1) {
+	if (debug == 1) {
+		showHistogram("Histogram U", histU, HIST_SIZE, HIST_SIZE);
+		showHistogram("Histogram V", histV, HIST_SIZE, HIST_SIZE);
+	}	
+
+	//Compute mean and standard deviation for U and V
+	computeMeanandStdDev(meanU, stdDevU, true);
+	computeMeanandStdDev(meanV, stdDevV, false);
+}
+
+Mat computeLikelihood(Mat image, float meanU, float meanV, float stdDevU, float stdDevV) {
+	Mat likelihood = Mat::zeros(image.rows, image.cols, CV_8UC1);
+	float min = 100;
+	float max = 0;
+	for (int i = 0; i < image.rows; i++) {
+		for (int j = 0; j < image.cols; j++) {
+			int uValue = image.at<Vec3b>(i, j)[1];
+			int vValue = image.at<Vec3b>(i, j)[2];
+			float uComponent = pow((uValue - meanU + 127), 2);
+			float vComponent = pow((vValue - meanV + 127), 2);
+			float uDeviation = pow(stdDevU, 2);
+			float vDeviation = pow(stdDevV, 2);
+			float likelihoodInitial = sqrt(uComponent / uDeviation +
+										   vComponent / vDeviation);
+			likelihood.at<uchar>(i, j) = likelihoodInitial;
+
+			if (likelihoodInitial > max)
+				max = likelihoodInitial;
+			if (likelihoodInitial < min)
+				min = likelihoodInitial;
+		}
+	}
+	cout << "Min: " << min << " Max: " << max << endl;
+	if (debug == 1)
+		imshow("Likelihood", likelihood);
+	return likelihood;
+}
+
+Mat thresholding(Mat likelihoodImage, float meanU, float meanV, float stdDevU, float stdDevV) {
+	int height = likelihoodImage.rows;
+	int width = likelihoodImage.cols;
+	Mat thresholdedImage = Mat(height, width, CV_8UC1);
+
+	int histLikelihood[HIST_SIZE];
+	memset(histLikelihood, 0, HIST_SIZE * sizeof(unsigned int));
+
+	// Create histogram for likelihood image
+	for (int i = 0; i < height; i++)
+		for (int j = 0; j < width; j++)
+			histLikelihood[likelihoodImage.at<uchar>(i, j)]++;
+	//if (debug == 1)
+	showHistogram("Likelihood histogram", histLikelihood, HIST_SIZE, HIST_SIZE);
+
+
+	for (int i = 0; i < height; i++)
+		for (int j = 0; j < width; j++)
+			if (likelihoodImage.at<uchar>(i, j) > 24)
+				thresholdedImage.at<uchar>(i, j) = 255;
+			else thresholdedImage.at<uchar>(i, j) = 0;
+	
+	imshow("Thresholded image", thresholdedImage);
+	return thresholdedImage;
+}
+
+Mat cleanUpImage(Mat image) {
+	Mat initialImage = image.clone();
+
+	// Dilate and erode image
+	cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+	dilate(image, image, element);
+	//imshow("dilated image", image);
+	erode(image, image, element);
+	//imshow("dilated and eroded image", image);
+
+	// Fill closed in regions
+	vector<vector<Point>> contours;
+
+	findContours(image, contours, RETR_EXTERNAL, CHAIN_APPROX_NONE);
+	drawContours(image, contours, -1, Scalar(255), -1);
+
+	//imshow("contour image", image);
+	
+	//erode and dilate again to remove leftover imperfections
+	element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+	erode(image, image, element);
+	dilate(image, image, element);
+
+	// And between images so that holes remain so we can filter out small objects with no holes
+	bitwise_and(initialImage, image, image);
+	if (debug == 1)
+		imshow("before euler number cleanup", image);
+	// Clean up objects using euler number (total number of objects in a region minus the total number of holes in those objects)
+	// Only retain objects with euler number less than 1
+	Mat outputImage = Mat::zeros(image.rows, image.cols, CV_8UC1);
+	Mat labels, stats, centroids;
+	int numComponents = connectedComponentsWithStats(image, labels, stats, centroids);
+	// Iterate through labeled objects and retain only those with euler number less than 1
+	for (int i = 1; i < numComponents; ++i) {
+		Mat mask = labels == i;
+		Mat invertedMask;
+		bitwise_not(mask, invertedMask);
+		// Compute Euler's number
+		Mat labelsForMask;
+		int eulerNumber = connectedComponents(invertedMask, labelsForMask) - 1;
+		int area = stats.at<int>(i, CC_STAT_AREA);
+		cout << "Euler number: " << eulerNumber << " Area: " << area << endl;
+		if (eulerNumber <= 1 && area < 500) {
+			outputImage.setTo(0, mask);
+		}
+		else {
+			outputImage.setTo(255, mask);
+		}
+	}
+
+	imshow("cleaned image", outputImage);
+	return outputImage;
+}
+
+Mat labelImage(Mat image) {
+	// Find connected components using opencv's function
+	Mat labels;
+	int num_components = connectedComponents(image, labels);
+
+	// Color objects
+	Mat outputImage = Mat::zeros(image.rows, image.cols, CV_8UC3);
+	RNG rng(0xFFFFFFFF); 
+
+	for (int i = 1; i < num_components; i++) {
+		Mat mask = labels == i;
+		outputImage.setTo(Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255)), mask);
+	}
+
+	imshow("labeled image", outputImage);
+	return outputImage;
+}
+
+Rect FaceValidate(const string& window_name, Mat frame, int minFaceSize, bool hasFace) {
+
+	std::vector<Rect> faces;
+	Mat grayFrame;
+	cvtColor(frame, grayFrame, COLOR_BGR2GRAY);
+	equalizeHist(grayFrame, grayFrame);
+
+	face_cascade.detectMultiScale(grayFrame, faces, 1.1, 2, 0 | CASCADE_SCALE_IMAGE,
+		Size(minFaceSize, minFaceSize));
+	Rect faceROI = faces[0];
+	for (int i = 0; i < faces.size(); i++)
+	{
+		rectangle(frame, faces[0], Scalar(0, 0, 255));
+
+		Mat faceROI = grayFrame(faces[i]);
+	}
+	imshow(window_name, frame);
+	return faceROI;
+}
+
+Mat FacesValidate(Mat inputImage) {
+	String face_cascade_name = "haarcascade_frontalface_alt.xml";
+	
+	Mat resultImage = Mat::zeros(inputImage.rows, inputImage.cols, CV_8UC3);
+	if (!face_cascade.load(face_cascade_name))
+	{
+		printf("Error loading face cascades !\n");
+		return resultImage;
+	}
+
+	Mat inputImageGray;
+	cvtColor(inputImage, inputImageGray, COLOR_BGR2GRAY);
+	equalizeHist(inputImageGray, inputImageGray);
+
+	imshow("before face detection", inputImageGray);
+	vector<Rect> faces;
+	face_cascade.detectMultiScale(inputImageGray, faces, 1.1, 2, 0 | CASCADE_SCALE_IMAGE, Size(10,10));
+
+	for (const Rect& face : faces) {
+		cout << "Face detected at: " << face.x << " " << face.y << endl;
+		rectangle(resultImage, face, Scalar(255), 2);
+	}
+
+	imshow("faces", resultImage);
+
+	return resultImage;
+
+	/*Mat gray;
+	Mat backgnd;
+	Mat diff;
+	Mat dst;
+	char c;
+
+	const unsigned char Th = 25;
+	const double alpha = 0.05;
+
+	for (;;) {
+		dst = Mat::zeros(gray.size(), gray.type());
+		int minFaceSize = 500;
+		Rect faceROI = FaceValidate("face", frame, minFaceSize, true);
+
+		typedef struct {
+			double arie;
+			double xc;
+			double yc;
+		} mylist;
+		vector<mylist> candidates;
+		candidates.clear();
+		vector<vector<Point> > contours;
+		vector<Vec4i> hierarchy;
+		Mat roi = Mat::zeros(temp.rows, temp.cols, CV_8UC3);
+		findContours(temp, contours, hierarchy, RETR_CCOMP, CHAIN_APPROX_SIMPLE);
+		Moments m;
+		if (contours.size() > 0)
+		{
+			int idx = 0;
+			for (; idx >= 0; idx = hierarchy[idx][0])
+			{
+				const vector<Point>& c = contours[idx];
+				m = moments(c);
+				double arie = m.m00;
+				double xc = m.m10 / m.m00;
+				double yc = m.m01 / m.m00;
+				Scalar color(rand() & 255, rand() & 255, rand() & 255);
+				drawContours(roi, contours, idx, color, FILLED, 8, hierarchy);
+				mylist elem;
+				elem.arie = arie;
+				elem.xc = xc;
+				elem.yc = yc;
+				candidates.push_back(elem);
+			}
+		}
+		if (candidates.size() >= 2)
+		{
+			mylist leftEye = candidates[0], rightEye = candidates[0];
+			double arie1 = 0, arie2 = 0;
+			for (mylist e : candidates)
+			{
+				if (e.arie > arie1)
+				{
+					arie2 = arie1;
+					leftEye = rightEye;
+					arie1 = e.arie;
+					rightEye = e;
+				}
+				else
+				{
+					if (e.arie > arie2)
+					{
+						arie2 = e.arie;
+						leftEye = e;
+					}
+				}
+			}
+			if ((abs(rightEye.yc - leftEye.yc) < 0.1 * faceROI.height && abs(rightEye.yc - leftEye.yc) < (faceROI.height) / 2))
+
+				if (abs(rightEye.xc - leftEye.xc) > 0.3 * faceROI.width && abs(rightEye.xc - leftEye.xc) < 0.5 * faceROI.width)
+					if (rightEye.xc - leftEye.xc > 0) {
+						if (leftEye.xc <= (faceROI.width) / 2 && rightEye.xc >= (faceROI.width) / 2)
+						{
+							rectangle(frame, faceROI, Scalar(0, 255, 0));
+							imshow("sursa", frame);
+						}
+					}
+					else if (leftEye.xc >= (faceROI.width) / 2 && rightEye.xc <= (faceROI.width) / 2) {
+						{
+							DrawCross(roi, Point(leftEye.xc, leftEye.yc), 15, Scalar(0, 255, 255), 2);
+							DrawCross(roi, Point(rightEye.xc, rightEye.yc), 15, Scalar(0, 255, 0), 2);
+							rectangle(frame, faceROI, Scalar(0, 255, 0));
+							imshow("sursa", frame);
+						}
+					}
+		}
+		imshow("colored", roi);
+	}*/
+}
+
+double computeElongationFactor(const Mat& faceRegion) {
+	// Compute covariance matrix
+	Mat covarianceMatrix;
+	calcCovarMatrix(faceRegion, covarianceMatrix, faceRegion, COVAR_NORMAL | COVAR_ROWS);
+
+	// Compute eigenvalues and eigenvectors
+	Mat eigenvalues, eigenvectors;
+	eigen(covarianceMatrix, eigenvalues, eigenvectors);
+
+	// Compute elongation factor
+	double elongationFactor = sqrt(eigenvalues.at<double>(0, 0) / eigenvalues.at<double>(0, 1));
+
+	return elongationFactor;
+}
+
+void drawPointInCenter(Mat& image, const Rect& boundingRect) {
+	Point center(boundingRect.x + boundingRect.width / 2, boundingRect.y + boundingRect.height / 2);
+	circle(image, center, 5, Scalar(255, 0, 0), -1);  // Draw a blue point at the center
+}
+
+void drawPointInCenter2(Mat& image, const Rect& boundingRect) {
+	Point center(boundingRect.x + boundingRect.width / 2, boundingRect.y + boundingRect.height / 2);
+	circle(image, center, 5, Scalar(255, 255, 0), -1);  // Draw a point at the center
+}
+
+Mat removeNotElongatedFaces(Mat image, Mat RGBImage, vector<double>& elongationFactors, vector<double>& areas) { // create using connectedComponents
+	Mat dst = image.clone();
+
+	Mat labels, stats, centroids;
+	int numComponents = connectedComponentsWithStats(image, labels, stats, centroids);
+
+	for (int i = 1; i < numComponents; ++i) {
+		Mat mask = labels == i;
+		
+		// Calculate the bounding rectangle for the connected component
+		Rect boundingRectObj = boundingRect(mask);
+
+		// Compute the aspect ratio (elongation factor)
+		double elongationFactor = static_cast<double>(boundingRectObj.height) / boundingRectObj.width;
+		double area = stats.at<int>(i, CC_STAT_AREA);
+
+		// Print or store the elongation factor for further analysis
+		std::cout << "Elongation Factor for Component " << i << ": " << elongationFactor << std::endl;
+		std::cout << "Area for Component " << i << ": " << area << std::endl;
+		if (elongationFactor > 1 && elongationFactor < 3.5) {
+			dst.setTo(255, mask);
+			drawPointInCenter(RGBImage, boundingRectObj);
+			areas.push_back(area);
+			elongationFactors.push_back(elongationFactor);
+		}
+		else {
+			dst.setTo(0, mask);
+		}
+
+		
+	}
+	cv::imshow("elongated faces", dst);
+
+	cv::imshow("faces after elongation", RGBImage);
+
+	return dst;
+}
+
+Mat prepareTemplateImage(Mat RGBTemplateImage) {
+	// convert to grayscale, set to black all pixels with value higher than 200 (white-ish colors)
+	Mat grayTemplateImage;
+	cvtColor(RGBTemplateImage, grayTemplateImage, COLOR_BGR2GRAY);
+	threshold(grayTemplateImage, grayTemplateImage, 200, 255, THRESH_BINARY_INV);
+	imshow("template image", grayTemplateImage);
+
+	return grayTemplateImage;
+}
+
+void templateMatching(Mat templateImage, Mat RGBImage, Mat image, vector<double> elongationFactors, vector<double> areas) {
+	//Compute area and elongation of templateImage
+
+	Mat templateFinalImage = image.clone();
+
+	Mat labels, stats, centroids;
+	int numComponents = connectedComponentsWithStats(image, labels, stats, centroids);
+
+	for (int i = 1; i < numComponents; ++i) {
+		Mat mask = labels == i;
+
+		// Scale and rotate template image to match the current face and then compute crossmatch
+		Rect boundingRectObj = boundingRect(mask);
+		double elongationFactor = elongationFactors[i-1];
+		double area = areas[i-1];
+
+		Mat roi = image(boundingRectObj);
+
+		// Calculate the angle using moments of the mask
+		Moments mu = moments(mask, true);
+		double angle = 0.5 * atan2(2 * mu.mu11, mu.mu20 - mu.mu02) * (180.0 / CV_PI);
+
+		// Rotate template
+		Point2f center(static_cast<float>(templateImage.cols / 2), static_cast<float>(templateImage.rows / 2));
+		Mat rotationMatrix = getRotationMatrix2D(center, angle, 1.0);
+		Mat rotatedTemplateImage;
+		warpAffine(templateImage, rotatedTemplateImage, rotationMatrix, boundingRectObj.size());
+
+		// Scale template
+
+		// Compute crossmatch
+		Mat result;
+		matchTemplate(roi, rotatedTemplateImage, result, TM_CCORR_NORMED);
+
+		if (debug == 1)
+			imshow("crossmatch", result);
+
+		// Find best match
+		Point maxLoc;
+		minMaxLoc(result, NULL, NULL, NULL, &maxLoc);
+
+		// Draw Point in center of the face
+		drawPointInCenter2(RGBImage, boundingRectObj);
+	}
+
+	cv::imshow("faces after template matching", RGBImage);
+}
+
+void project()
+{
+	// Train model and compute histograms/means/deviations for both color channels
+	float meanU, meanV, stdDevU, stdDevV;
+	train(meanU, meanV, stdDevU, stdDevV);
+
+	//Compute skin likelihood for images
+	string pathToImage = "Images/Proiect/test.png";
+	//string pathToImage = "Images/Proiect/averageFace.png";
+	string pathToTemplateImage = "Images/Proiect/averageFace.png";
+	//string pathToImage = "Images/kids.bmp";
+	//string pathToImage = "Images/Persons/person_005.bmp";
+	//string pathToImage = "Images/Lena_24bits.bmp";
+	Mat RGBImage = getImage(pathToImage);
+	Mat LuvImage = getImageCIELUV(RGBImage);
+	Mat blurredImage = blurImage(LuvImage);
+	Mat likelihoodImage = computeLikelihood(blurredImage, meanU, meanV, stdDevU, stdDevV);
+	Mat thresholdedImage = thresholding(likelihoodImage, meanU, meanV, stdDevU, stdDevV);
+	Mat cleanImage = cleanUpImage(thresholdedImage);
+	vector<double> elongationFactors = vector<double>();
+	vector<double> areas = vector<double>();
+	Mat imageWithElongatedFaces = removeNotElongatedFaces(cleanImage, RGBImage, elongationFactors, areas);
+
+	Mat RGBTemplateImage = getImage(pathToTemplateImage);
+	Mat templateImage = prepareTemplateImage(RGBTemplateImage);
+	//templateMatching(templateImage, RGBImage, imageWithElongatedFaces, elongationFactors, areas);
+	//Mat labelledImage = labelImage(cleanImage);
+	//Mat facesImage = FacesValidate(labelledImage);
+	waitKey();
+}
+
+
+
+//////////////////////////////
+
+int main()
+{
+	utils::logging::setLogLevel(utils::logging::LOG_LEVEL_FATAL);
+	projectPath = _wgetcwd(0, 0);
+	int op;
+	do
+	{
+		system("cls");
+		destroyAllWindows();
+		printf("Menu:\n");
+		printf(" 1 - Project\n");
+		printf(" 2 - Show HSV/histograms/binarized H (Lab 2)\n");
+		printf(" 3 - Segment hand (Lab 3)\n");
+		printf(" 4 - Region growing (Lab 4)\n");
+		printf(" 5 - Colturi (Lab 5)\n");
+		printf(" 6 - Segmentare Video (Lab 6)\n");
+		printf(" 7 - Horn-Schunk (Lab 7)\n");
+		printf(" 8 - Lab7 2\n");
+		printf(" 9 - Lab 8 optic flow dens\n");
+		printf(" 10 - Lab 9\n");
+		printf(" 11 - Lab 9 video\n");
+		printf(" 12 - Lab 10 face detect\n");
+		printf(" 13 - Lab 11 person detect\n");
+		printf(" 14 - Lab 11 with confidence\n");
+		printf(" 0 - Exit\n\n");
+		printf("Option: ");
+		//scanf("%d", &op);
+		op = 1;
+		switch (op)
+		{
+			case 1:
+				project();
+				break;
+			case 2:
+				showHSV();
+				break;
+			case 3:
+				L3_ColorModel_Init();
+				L3_ColorModel_Build();
+				break;
+			case 4:
+				Lab4MouseClick();
+				break;
+			case 5:
+				cornerDetection();
+				break;
+			case 6:
+				Lab6Video(3);
+				break;
+			case 7:
+				Horn_Schunk();
+				break;
+			case 8:
+				fluxOptic();
+				break;
+			case 9:
+				Lab8();
+				break;
+			case 10:
+				lab9();
+				break;
+			case 11:
+				face_detect_video();
+				break;
+			case 12:
+				lab10();
+				break;
+			case 13:
+				person_detection();
+				break;
+			case 14:
+				lab11();
+				break;
+		}
+	} while (op != 0);
+	return 0;
+}
